@@ -83,7 +83,7 @@ Shape: {"front": "Term or Key Concept", "back": "Detailed Fact or Definition"}\n
     }
 
     const payload = {
-      model: "llama3-70b-8192",
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: taskPrompt }
