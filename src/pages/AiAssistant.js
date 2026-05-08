@@ -200,7 +200,7 @@ export default function AiAssistant() {
           ) : (
             <div>
               {/* Tab Navigation */}
-              <div style={{ display: 'flex', gap: 24, borderBottom: '1px solid var(--border)', paddingBottom: 16, marginBottom: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-evenly', borderBottom: '1px solid var(--border)', paddingBottom: 16, marginBottom: 24 }}>
                 {['summary', 'flashcards', 'quiz'].map(tab => (
                   <button 
                     key={tab}
@@ -233,7 +233,11 @@ export default function AiAssistant() {
               )}
 
               {activeTab === 'flashcards' && results.flashcards && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
+                <div>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 20, textAlign: 'center', letterSpacing: 1, textTransform: 'uppercase' }}>
+                    💡 Tip: Click any card to flip it and reveal the details
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
                   {results.flashcards.map((fc, i) => (
                     <div 
                       key={i} 
@@ -258,7 +262,8 @@ export default function AiAssistant() {
                     </div>
                   ))}
                 </div>
-              )}
+              </div>
+            )}
 
               {activeTab === 'quiz' && results.quiz && (
                 <div>
