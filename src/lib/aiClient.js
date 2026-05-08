@@ -1,72 +1,157 @@
-// AI Client targeting OCR.space and Groq
+import * as pdfjsLib from 'pdfjs-dist';
+import JSZip from 'jszip';
+
+// Set up pdfjs worker using a reliable CDN
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
 const OCR_API_KEY = process.env.REACT_APP_OCR_API_KEY;
 const GROQ_API_KEY = process.env.REACT_APP_GROQ_API_KEY;
 
-// 1. Extract Text from PDF (Reliable version)
-export async function extractTextFromPDF(fileOrUrl) {
+/**
+ * Main entry point for text extraction.
+ * Supports PDF, PPTX, and Images.
+ */
+export async function extractTextFromFile(file) {
+  const fileName = file.name.toLowerCase();
+  const fileSize = file.size;
+
   try {
-    let blob;
-    let fileName = 'document.pdf';
-
-    if (fileOrUrl instanceof File) {
-      blob = fileOrUrl;
-      fileName = fileOrUrl.name;
+    if (fileName.endsWith('.pdf')) {
+      return await extractTextFromPDFLocal(file);
+    } else if (fileName.endsWith('.pptx') || fileName.endsWith('.ppt')) {
+      return await extractTextFromPPTX(file);
+    } else if (file.type.startsWith('image/')) {
+      return await extractTextViaOCR(file);
     } else {
-      // Fetch the local PDF file as a blob
-      const response = await fetch(fileOrUrl);
-      if (!response.ok) throw new Error("Could not fetch the PDF file.");
-      blob = await response.blob();
-      fileName = fileOrUrl.split('/').pop() || 'document.pdf';
+      throw new Error("Unsupported file type. Please upload a PDF, PowerPoint, or Image.");
     }
-
-    // Check if filename suggests Arabic
-    const isArabic = fileName.toLowerCase().includes('arabic');
-    const language = isArabic ? 'ara' : 'eng';
-
-    // Prepare form data for OCR.space
-    const formData = new FormData();
-    formData.append('file', blob, fileName);
-    formData.append('language', language);
-    formData.append('isOverlayRequired', 'false');
-    formData.append('OCREngine', '2'); 
-    formData.append('isTable', 'true'); 
-
-    const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
-      method: 'POST',
-      headers: { 'apikey': OCR_API_KEY },
-      body: formData
-    });
-
-    const ocrData = await ocrResponse.json();
-
-    if (ocrData.IsErroredOnProcessing) {
-      const msg = ocrData.ErrorMessage ? ocrData.ErrorMessage[0] : 'OCR Processing failed';
-      throw new Error(msg);
-    }
-
-    if (!ocrData.ParsedResults || ocrData.ParsedResults.length === 0) {
-      throw new Error("No text could be extracted. The file might be too large (max 5MB) or unreadable.");
-    }
-
-    const extractedText = ocrData.ParsedResults.map(p => p.ParsedText).join('\n\n');
-    
-    if (!extractedText.trim()) {
-      throw new Error("The file was scanned but no readable text was found.");
-    }
-
-    return extractedText;
-
   } catch (err) {
-    console.error("OCR Extraction Error:", err);
+    console.error("Extraction Error:", err);
     throw err;
   }
 }
 
-// 2. Query Groq
+// 1. Local PDF Extraction
+async function extractTextFromPDFLocal(file) {
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let fullText = "";
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map(item => item.str).join(' ');
+      fullText += pageText + "\n\n";
+    }
+
+    // If local extraction failed to find text, it might be a scanned PDF
+    if (!fullText.trim()) {
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error("This PDF appears to be a scanned image and is too large (>5MB) for OCR processing. Please use a digital PDF or a smaller file.");
+      }
+      return await extractTextViaOCR(file);
+    }
+
+    return fullText;
+  } catch (err) {
+    if (file.size <= 5 * 1024 * 1024) {
+      return await extractTextViaOCR(file);
+    }
+    throw err;
+  }
+}
+
+// 2. Local PPTX Extraction
+async function extractTextFromPPTX(file) {
+  try {
+    const zip = await JSZip.loadAsync(file);
+    let fullText = "";
+
+    // PPTX stores slides in ppt/slides/slideN.xml
+    const slideFiles = Object.keys(zip.files).filter(name => name.startsWith('ppt/slides/slide') && name.endsWith('.xml'));
+    
+    // Sort slides numerically
+    slideFiles.sort((a, b) => {
+      const numA = parseInt(a.match(/\d+/)[0]);
+      const numB = parseInt(b.match(/\d+/)[0]);
+      return numA - numB;
+    });
+
+    for (const slideFile of slideFiles) {
+      const content = await zip.file(slideFile).async("string");
+      // Basic XML parsing to find <a:t> tags which contain text
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(content, "text/xml");
+      const textNodes = xmlDoc.getElementsByTagName("a:t");
+      
+      for (let i = 0; i < textNodes.length; i++) {
+        fullText += textNodes[i].textContent + " ";
+      }
+      fullText += "\n\n";
+    }
+
+    if (!fullText.trim()) {
+      throw new Error("No readable text found in this PowerPoint. It might be composed entirely of images.");
+    }
+
+    return fullText;
+  } catch (err) {
+    console.error("PPTX Error:", err);
+    throw new Error("Failed to extract text from PowerPoint. Make sure it is a valid .pptx file.");
+  }
+}
+
+// 3. Fallback OCR (Original logic)
+async function extractTextViaOCR(file) {
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error("File is too large for OCR processing (Max 5MB for scanned documents). Please upload a digital version.");
+  }
+
+  const isArabic = file.name.toLowerCase().includes('arabic');
+  const language = isArabic ? 'ara' : 'eng';
+
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  formData.append('language', language);
+  formData.append('isOverlayRequired', 'false');
+  formData.append('OCREngine', '2');
+  formData.append('isTable', 'true');
+
+  const ocrResponse = await fetch('https://api.ocr.space/parse/image', {
+    method: 'POST',
+    headers: { 'apikey': OCR_API_KEY },
+    body: formData
+  });
+
+  const ocrData = await ocrResponse.json();
+
+  if (ocrData.IsErroredOnProcessing) {
+    const msg = ocrData.ErrorMessage ? ocrData.ErrorMessage[0] : 'OCR Processing failed';
+    throw new Error(msg);
+  }
+
+  if (!ocrData.ParsedResults || ocrData.ParsedResults.length === 0) {
+    throw new Error("No text could be extracted.");
+  }
+
+  const extractedText = ocrData.ParsedResults.map(p => p.ParsedText).join('\n\n');
+  
+  if (!extractedText.trim()) {
+    throw new Error("No readable text found in the document.");
+  }
+
+  return extractedText;
+}
+
+// Backward compatibility or renamed export
+export const extractTextFromPDF = extractTextFromFile;
+
+// 4. Query Groq
 export async function queryGroq(prompt, extractedText, mode = 'summary') {
   try {
     const systemPrompt = `You are a strict, highly accurate AI teacher. 
-You will be given text extracted from a textbook.
+You will be given text extracted from a textbook or lesson.
 Your job is to generate study materials based ONLY on the provided text.`;
 
     let taskPrompt = prompt;

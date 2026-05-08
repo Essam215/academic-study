@@ -125,13 +125,13 @@ export default function AiAssistant() {
           <input 
             type="file" 
             id="ai-upload" 
-            accept="image/*,.pdf" 
+            accept="image/*,.pdf,.ppt,.pptx" 
             style={{ display: 'none' }} 
             onChange={(e) => {
               const file = e.target.files[0];
               if (!file) return;
-              if (file.size > 5 * 1024 * 1024) {
-                setError("File is too large! (Max 5MB)");
+              if (file.size > 30 * 1024 * 1024) {
+                setError("File is too large! (Max 30MB)");
                 return;
               }
               setSelectedFile(file);
