@@ -91,39 +91,61 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const recordStudySession = async () => {
+  const addPoints = async (pts) => {
     if (!user) return;
-    
+
     const today = new Date().toISOString().split('T')[0];
     const lastStudy = user.last_study_date;
     
-    if (lastStudy === today) return; // Already recorded today
+    let streakBonus = 0;
+    let streakUpdates = {};
 
-    let newStreak = (user.streak || 0) + 1;
-
-    if (lastStudy) {
-      const lastDate = new Date(lastStudy);
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
+    // Check if we should update streak (once per day)
+    if (lastStudy !== today) {
+      let newStreak = (user.streak || 0) + 1;
       
-      if (lastStudy !== yesterdayStr) {
-        newStreak = 1; // Reset streak if missed a day
+      if (lastStudy) {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        if (lastStudy !== yesterdayStr) {
+          newStreak = 1; // Reset if a day was missed
+        }
       }
+
+      streakBonus = 50; // Base bonus for studying today
+      if (newStreak % 7 === 0) streakBonus += 200; // Weekly bonus
+      if (newStreak % 30 === 0) streakBonus += 1000; // Monthly bonus
+      
+      streakUpdates = { 
+        streak: newStreak, 
+        last_study_date: today 
+      };
+      
+      console.log(`Streak updated! New streak: ${newStreak}. Bonus: ${streakBonus} XP`);
     }
 
-    const updates = { streak: newStreak, last_study_date: today };
-    setUser(prev => ({ ...prev, ...updates }));
-    await supabase.from('profiles').update(updates).eq('id', user.id);
+    const newPoints = (user.points || 0) + pts + streakBonus;
+    const finalUpdates = { ...streakUpdates, points: newPoints };
+
+    // Optimistic Update
+    setUser(prev => ({ ...prev, ...finalUpdates }));
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update(finalUpdates)
+        .eq('id', user.id);
+        
+      if (error) throw error;
+    } catch (err) {
+      console.error("Failed to update points/streak:", err);
+      // Revert if DB fails? For now, we'll just log it to keep UI snappy
+    }
   };
 
-  const addPoints = async (pts) => {
-    if (!user) return;
-    const newPoints = (user.points || 0) + pts;
-    setUser(prev => ({ ...prev, points: newPoints })); // Optimistic updating
-    await supabase.from('profiles').update({ points: newPoints }).eq('id', user.id);
-    await recordStudySession(); // Record study session when they earn points
-  };
+  const recordStudySession = () => addPoints(0); // Helper for when they study but don't earn specific points
 
   return (
     <AuthContext.Provider value={{ user, login, signup, logout, updateUser, addPoints, recordStudySession, loading }}>

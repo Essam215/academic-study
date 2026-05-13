@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { extractTextFromPDF, queryGroq } from '../lib/aiClient';
+import { extractTextFromPDF, queryAI } from '../lib/aiClient';
 import { MdLibraryBooks, MdOutlineQuiz, MdFormatListBulleted } from 'react-icons/md';
 import { BsCardText } from 'react-icons/bs';
+import { useAuth } from '../context/AuthContext';
 
 export default function AiAssistant() {
+  const { addPoints } = useAuth();
   const [selectedFile, setSelectedFile] = useState(null);
   const [pasteText, setPasteText] = useState('');
   const [showPasteModal, setShowPasteModal] = useState(false);
@@ -51,7 +53,7 @@ export default function AiAssistant() {
       }
       
       setLoadingStep(`2/2 Generating ${mode === 'flashcards' ? 'Flashcards' : mode === 'quiz' ? 'Quiz' : 'Summary'} via AI...`);
-      const aiData = await queryGroq('', extractedText, mode);
+      const aiData = await queryAI('', extractedText, mode);
 
       setResults(prev => ({ ...prev, [mode]: aiData }));
       
@@ -78,6 +80,13 @@ export default function AiAssistant() {
       if (quizAnswers[i] === q.answer) correct++;
     });
     return correct;
+  };
+
+  const handleQuizSubmit = () => {
+    setQuizSubmitted(true);
+    const correct = checkQuizScore();
+    const pts = correct * 10;
+    addPoints(pts);
   };
 
   const formatSummary = (text) => {
@@ -320,15 +329,20 @@ export default function AiAssistant() {
                   
                   <div style={{ marginTop: 24, paddingTop: 24, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     {quizSubmitted ? (
-                      <div style={{ fontSize: 16, fontWeight: 700 }}>
-                        Score: <span style={{ color: 'var(--gold)', fontFamily: 'var(--font-display)', fontSize: 24 }}>{checkQuizScore()} / {results.quiz.length}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ fontSize: 16, fontWeight: 700 }}>
+                          Score: <span style={{ color: 'var(--gold)', fontFamily: 'var(--font-display)', fontSize: 24 }}>{checkQuizScore()} / {results.quiz.length}</span>
+                        </div>
+                        <div style={{ color: '#00ff88', fontSize: 12, fontWeight: 700, marginTop: 4, letterSpacing: 1 }}>
+                          +{checkQuizScore() * 10} XP EARNED
+                        </div>
                       </div>
                     ) : (
                       <div />
                     )}
                     <button 
                       className="btn btn-primary"
-                      onClick={() => setQuizSubmitted(true)}
+                      onClick={handleQuizSubmit}
                       disabled={quizSubmitted || Object.keys(quizAnswers).length < results.quiz.length}
                     >
                       {quizSubmitted ? 'REVIEWING' : 'SUBMIT QUIZ'}
